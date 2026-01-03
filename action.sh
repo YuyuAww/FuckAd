@@ -69,7 +69,6 @@ synchosts() {
 	wait
 }
 
-
 # 执行同步（失败自动重试）
 
 if [ "$(echo "$source" | wc -l)" != "0" ]; then
@@ -81,8 +80,7 @@ if [ "$(echo "$source" | wc -l)" != "0" ]; then
 	done
 fi
 
-
-# 后处理：过滤 / 去重 / 黑白名单
+# 后续处理：过滤 / 去重 / 黑白名单
 
 grep -E -v 'localhost|#|!' ${MODDIR}/tmp/hosts.tmp \
 | grep -E "^[0-9]|::1" \
