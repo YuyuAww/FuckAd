@@ -62,7 +62,6 @@ jobs:
             "version": "${VERSION}",
             "versionCode": ${VERSION_CODE},
             "zipUrl": "https://github.com/YuyuAww/FuckAd/releases/download/${VERSION}/FuckAd-${VERSION}.zip",
-            "sha256": "${SHA256}",
             "changelog": "https://github.com/YuyuAww/FuckAd/releases/tag/${VERSION}"
           }
           EOF
