@@ -22,12 +22,14 @@ jobs:
       - name: Parse version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-          VERSION_CODE=$(echo "$VERSION" | tr -d 'v.' )
+
+          # v1.2.3 -> 10203（防止 1.10.0 问题）
+          VERSION_CODE=$(echo "$VERSION" | sed 's/^v//' | awk -F. '{ printf "%d%02d%02d\n", $1,$2,$3 }')
 
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
 
-      # 更新 module.prop
+      # 更新 module.prop（仅用于打包）
       - name: Update module.prop
         run: |
           sed -i "s/^version=.*/version=${VERSION}/" module.prop
@@ -42,7 +44,8 @@ jobs:
           zip -r "$ZIP_NAME" . \
             -x ".git/*" \
             -x ".github/*" \
-            -x "*.md"
+            -x "update.json" \
+            -x "*.sha256"
 
       # 生成 SHA256
       - name: Generate SHA256
@@ -51,7 +54,7 @@ jobs:
           SHA256=$(cut -d ' ' -f1 "$ZIP_NAME.sha256")
           echo "SHA256=$SHA256" >> $GITHUB_ENV
 
-      # 生成 update.json
+      # 生成 update.json（用于 OTA）
       - name: Generate update.json
         run: |
           cat > update.json <<EOF
@@ -59,6 +62,7 @@ jobs:
             "version": "${VERSION}",
             "versionCode": ${VERSION_CODE},
             "zipUrl": "https://github.com/YuyuAww/FuckAd/releases/download/${VERSION}/FuckAd-${VERSION}.zip",
+            "sha256": "${SHA256}",
             "changelog": "https://github.com/YuyuAww/FuckAd/releases/tag/${VERSION}"
           }
           EOF
