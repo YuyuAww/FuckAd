@@ -15,39 +15,79 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Set version
+      # 解析版本号
+      - name: Parse version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          sed -i "s/^version=.*/version=$VERSION/" module.prop
+          VERSION_CODE=$(echo "$VERSION" | tr -d 'v.' )
 
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
+
+      # 更新 module.prop
+      - name: Update module.prop
+        run: |
+          sed -i "s/^version=.*/version=${VERSION}/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
+
+      # 打包 Magisk 模块
       - name: Build Magisk module zip
         run: |
           ZIP_NAME=FuckAd-${VERSION}.zip
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
           zip -r "$ZIP_NAME" . \
             -x ".git/*" \
             -x ".github/*" \
             -x "*.md"
 
-      - name: Generate SHA256 checksum
+      # 生成 SHA256
+      - name: Generate SHA256
         run: |
           sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256"
-          echo "SHA256=$(cut -d ' ' -f1 $ZIP_NAME.sha256)" >> $GITHUB_ENV
+          SHA256=$(cut -d ' ' -f1 "$ZIP_NAME.sha256")
+          echo "SHA256=$SHA256" >> $GITHUB_ENV
 
+      # 生成 update.json
+      - name: Generate update.json
+        run: |
+          cat > update.json <<EOF
+          {
+            "version": "${VERSION}",
+            "versionCode": ${VERSION_CODE},
+            "zipUrl": "https://github.com/YuyuAww/FuckAd/releases/download/${VERSION}/FuckAd-${VERSION}.zip",
+            "changelog": "https://github.com/YuyuAww/FuckAd/releases/tag/${VERSION}"
+          }
+          EOF
+
+      # 提交 update.json 到 main
+      - name: Commit update.json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add update.json
+          git commit -m "Update update.json for ${VERSION}" || exit 0
+          git push origin HEAD:main
+
+      # 创建 Release 并上传附件
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           name: ${{ env.VERSION }}
           body: |
-            ## 更新内容
-            - hosts 规则自动同步
+            ## FuckAd Magisk Module
+
+            ### 更新内容
+            - hosts 广告规则自动同步
             - 多订阅源并行下载
             - wget 失败自动切换 curl
 
-            ## 文件校验
+            ### 文件校验
             **SHA256**
             ```
             ${{ env.SHA256 }}
