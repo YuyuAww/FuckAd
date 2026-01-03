@@ -1,0 +1,45 @@
+name: Build & Release Magisk Module
+
+on:
+  push:
+    tags:
+      - 'v*'   # 只有 push v1.0.0 这种 tag 才触发
+
+permissions:
+  contents: write   # 允许创建 release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          sed -i "s/^version=.*/version=$VERSION/" module.prop
+
+      - name: Build Magisk module zip
+        run: |
+          ZIP_NAME=hosts-module-${VERSION}.zip
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          zip -r "$ZIP_NAME" . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "*.md"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: ${{ env.VERSION }}
+          body: |
+            ## 更新内容
+            - hosts 规则自动同步
+            - 多订阅源并行下载
+            - wget 失败自动切换 curl
+          files: |
+            ${{ env.ZIP_NAME }}
