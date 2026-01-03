@@ -3,10 +3,10 @@ name: Build & Release Magisk Module
 on:
   push:
     tags:
-      - 'v*'   # 只有 push v1.0.0 这种 tag 才触发
+      - 'v*'
 
 permissions:
-  contents: write   # 允许创建 release
+  contents: write
 
 jobs:
   build:
@@ -24,12 +24,17 @@ jobs:
 
       - name: Build Magisk module zip
         run: |
-          ZIP_NAME=hosts-module-${VERSION}.zip
+          ZIP_NAME=FuckAd-${VERSION}.zip
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           zip -r "$ZIP_NAME" . \
             -x ".git/*" \
             -x ".github/*" \
             -x "*.md"
+
+      - name: Generate SHA256 checksum
+        run: |
+          sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256"
+          echo "SHA256=$(cut -d ' ' -f1 $ZIP_NAME.sha256)" >> $GITHUB_ENV
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -41,5 +46,12 @@ jobs:
             - hosts 规则自动同步
             - 多订阅源并行下载
             - wget 失败自动切换 curl
+
+            ## 文件校验
+            **SHA256**
+            ```
+            ${{ env.SHA256 }}
+            ```
           files: |
             ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
