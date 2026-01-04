@@ -25,7 +25,7 @@ jobs:
           VERSION=${RAW_VERSION#v}              # 1.2.3
 
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-          VERSION_CODE=$(printf "%d%02d%02d\n" "$MAJOR" "$MINOR" "$PATCH")
+          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
 
           echo "RAW_VERSION=$RAW_VERSION" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
@@ -56,24 +56,7 @@ jobs:
           SHA256=$(cut -d ' ' -f1 "$ZIP_NAME.sha256")
           echo "SHA256=$SHA256" >> $GITHUB_ENV
 
-      # 自动生成 changelog（安全写法，避免 EOF 问题）
-      - name: Generate changelog
-        run: |
-          PREV_TAG=$(git tag --sort=-creatordate | grep '^v' | sed -n '2p')
-
-          if [ -z "$PREV_TAG" ]; then
-            CHANGELOG="- 初次发布"
-          else
-            CHANGELOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"- %s")
-          fi
-
-          {
-            echo "CHANGELOG<<__EOF__"
-            echo "$CHANGELOG"
-            echo "__EOF__"
-          } >> "$GITHUB_ENV"
-
-      # 生成 Magisk 官方 OTA update.json
+      # 生成 Magisk OTA update.json（使用 CHANGELOG.md）
       - name: Generate update.json
         run: |
           cat > update.json <<EOF
@@ -81,11 +64,11 @@ jobs:
             "version": "${VERSION}",
             "versionCode": ${VERSION_CODE},
             "zipUrl": "https://github.com/YuyuAww/FuckAd/releases/download/${RAW_VERSION}/FuckAd-${VERSION}.zip",
-            "changelog": "https://github.com/YuyuAww/FuckAd/releases/tag/${RAW_VERSION}"
+            "changelog": "https://raw.githubusercontent.com/YuyuAww/FuckAd/main/CHANGELOG.md"
           }
           EOF
 
-      # 提交 update.json 到 main（还原 module.prop）
+      # 提交 update.json（还原 module.prop）
       - name: Commit update.json
         run: |
           git config user.name "github-actions"
@@ -105,8 +88,8 @@ jobs:
           body: |
             ## FuckAd Magisk Module
 
-            ### 更新内容
-            ${{ env.CHANGELOG }}
+            📄 更新日志：
+            https://github.com/YuyuAww/FuckAd/blob/main/CHANGELOG.md
 
             ### 文件校验
             **SHA256**
