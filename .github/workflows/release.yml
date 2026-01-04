@@ -22,18 +22,24 @@ jobs:
       - name: Parse version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-
-          # v1.2.3 -> 10203（防止 1.10.0 问题）
           VERSION_CODE=$(echo "$VERSION" | sed 's/^v//' | awk -F. '{ printf "%d%02d%02d\n", $1,$2,$3 }')
 
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
 
+      # 校验 CHANGELOG 是否包含该版本
+      - name: Check changelog
+        run: |
+          grep -q "^## ${VERSION}" FuckAd/CHANGELOG.md || {
+            echo "❌ FuckAd/CHANGELOG.md 中未找到 ${VERSION}"
+            exit 1
+          }
+
       # 更新 module.prop（仅用于打包）
       - name: Update module.prop
         run: |
-          sed -i "s/^version=.*/version=${VERSION}/" module.prop
-          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
+          sed -i "s/^version=.*/version=${VERSION}/" FuckAd/module.prop
+          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" FuckAd/module.prop
 
       # 打包 Magisk 模块
       - name: Build Magisk module zip
@@ -44,7 +50,9 @@ jobs:
           zip -r "$ZIP_NAME" . \
             -x ".git/*" \
             -x ".github/*" \
+            -x ".gitignore" \
             -x "update.json" \
+            -x "CHANGELOG.md" \
             -x "*.sha256"
 
       # 生成 SHA256
@@ -54,15 +62,18 @@ jobs:
           SHA256=$(cut -d ' ' -f1 "$ZIP_NAME.sha256")
           echo "SHA256=$SHA256" >> $GITHUB_ENV
 
-      # 生成 update.json（用于 OTA）
+      # 生成 update.json（OTA）
       - name: Generate update.json
         run: |
+          VERSION_NO_V=${VERSION#v}
+          CHANGELOG_ANCHOR=$(echo "v${VERSION_NO_V}" | tr -d '.')
+
           cat > update.json <<EOF
           {
             "version": "${VERSION}",
             "versionCode": ${VERSION_CODE},
             "zipUrl": "https://github.com/YuyuAww/FuckAd/releases/download/${VERSION}/FuckAd-${VERSION}.zip",
-            "changelog": "https://github.com/YuyuAww/FuckAd/releases/tag/${VERSION}"
+            "changelog": "https://github.com/YuyuAww/FuckAd/blob/main/FuckAd/CHANGELOG.md#${CHANGELOG_ANCHOR}"
           }
           EOF
 
@@ -72,21 +83,30 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
+          git fetch origin main
+          git switch main
+
           git add update.json
           git commit -m "Update update.json for ${VERSION}" || exit 0
-          git push origin HEAD:main
+          git push origin main
 
-      # 创建 Release 并上传附件
+      # 提取当前版本更新内容
+      - name: Extract changelog
+        run: |
+          awk "/^## ${VERSION}/{flag=1;next}/^## /{flag=0}flag" FuckAd/CHANGELOG.md > RELEASE_CHANGELOG.md
+
+      # 创建 GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           name: ${{ env.VERSION }}
+          fail_on_unmatched_files: true
           body: |
             ## FuckAd Magisk Module
 
             ### 更新内容
-            - 小优化与修复
+            $(cat RELEASE_CHANGELOG.md)
 
             ### 文件校验
             **SHA256**
