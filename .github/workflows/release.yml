@@ -86,9 +86,7 @@ jobs:
             ## FuckAd Magisk Module
 
             ### 更新内容
-            - hosts 广告规则自动同步
-            - 多订阅源并行下载
-            - wget 失败自动切换 curl
+            - 小优化与修复
 
             ### 文件校验
             **SHA256**

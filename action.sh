@@ -80,50 +80,36 @@ if [ "$(echo "$source" | wc -l)" != "0" ]; then
 	done
 fi
 
-# 后续处理：过滤 / 去重 / 黑白名单
-
-grep -E -v 'localhost|#|!' ${MODDIR}/tmp/hosts.tmp \
-| grep -E "^[0-9]|::1" \
-| sed 's/\t/ /g' \
-| grep -v '^$' \
-| awk 'NF' > ${MODDIR}/tmp/hosts
+# 后续处理（过滤、去重、黑白名单等）
+cat ${MODDIR}/tmp/hosts.tmp | grep -E -v 'localhost|#|!' | grep -E "^[0-9]|::1" | sed 's/\t/ /g' | grep -v '^$' | awk 'NF' > ${MODDIR}/tmp/hosts
 
 allhosts=$(wc -l ${MODDIR}/tmp/hosts | awk '{print $1}')
 
-# 白名单
-for whiteurl in $(grep -v '^[ \t]*[#]' ${MODDIR}/whitehosts.ini | awk 'NF')
+for whiteurl in $(grep -v '^[ \t]*[#]' whitehosts.ini | awk 'NF > 0')
 do
 	sed -i "/ $whiteurl\s*/d" ${MODDIR}/tmp/hosts
 done
 
-# 去重（按域名）
 awk '!seen[$2]++' ${MODDIR}/tmp/hosts > ${MODDIR}/tmp/hosts.tmp
 
-# 黑名单
-for blockurl in $(grep -v '^[ \t]*[#]' ${MODDIR}/blackhosts.ini | awk 'NF')
+for blockurl in $(grep -v '^[ \t]*[#]' blackhosts.ini | awk 'NF > 0')
 do
 	echo "127.0.0.1  $blockurl" >> ${MODDIR}/tmp/hosts.tmp
 done
 
 sorthosts=$(wc -l ${MODDIR}/tmp/hosts.tmp | awk '{print $1}')
 
-# 应用 hosts
-
 if [ -s "${MODDIR}/tmp/hosts.tmp" ]; then
-	umount /system/etc/hosts 2>/dev/null
-
-	mv -f ${MODDIR}/tmp/hosts.tmp ${MODDIR}/system/etc/hosts
-
-	echo -e "127.0.0.1  localhost\n::1  localhost" >> ${MODDIR}/system/etc/hosts
-
-	mount --bind ${MODDIR}/system/etc/hosts /system/etc/hosts
-
-	sed -i "s|description=.*|description=[😋生效中] $sorthosts 条规则有效; $((allhosts - sorthosts)) 条去重; $(grep -v '^[ \t]*[#]' whitehosts.ini | awk 'NF' | wc -l) 白名单; $(grep -v '^[ \t]*[#]' blackhosts.ini | awk 'NF' | wc -l) 黑名单; 上次同步 $syncdate;|" \
-	${MODDIR}/module.prop
-
-	echo "$sorthosts 条规则有效"
+   umount /system/etc/hosts
+   mv -f ${MODDIR}/tmp/hosts.tmp ${MODDIR}/system/etc/hosts
+   sed -i "s/description=.*/description=[😋生效中] $sorthosts 条规则有效; $((allhosts - sorthosts)) 条规则去重; $(grep -v '^[ \t]*[#]' whitehosts.ini | awk 'NF > 0' | wc -l) 条白名单规则; $(grep -v '^[ \t]*[#]' blackhosts.ini | awk 'NF > 0' | wc -l) 条黑名单规则; 上次同步日期 $syncdate;/" ${MODDIR}/module.prop
+   echo "$sorthosts 条规则有效;"
+   echo "$((allhosts - sorthosts)) 条规则去重;"
+   echo "$(grep -v '^[ \t]*[#]' whitehosts.ini | awk 'NF > 0' | wc -l) 条白名单规则;"
+   echo "$(grep -v '^[ \t]*[#]' blackhosts.ini | awk 'NF > 0' | wc -l) 条黑名单规则;"
+   echo -e '127.0.0.1  localhost\n::1  localhost' >> ${MODDIR}/system/etc/hosts
+   mount --bind ${MODDIR}/system/etc/hosts /system/etc/hosts
 else
-	echo "本次同步未获取到任何有效规则"
+	echo "此次同步不包含任何可用规则"
 fi
-
 sleep 2
