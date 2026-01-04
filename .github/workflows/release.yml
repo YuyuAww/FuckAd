@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 必须，否则拿不到旧 tag
+          fetch-depth: 0
 
       # 解析版本号
       - name: Parse version
@@ -31,7 +31,7 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
 
-      # 更新 module.prop（仅用于打包，不提交）
+      # 更新 module.prop（仅用于打包）
       - name: Update module.prop
         run: |
           sed -i "s/^version=.*/version=${VERSION}/" module.prop
@@ -56,20 +56,22 @@ jobs:
           SHA256=$(cut -d ' ' -f1 "$ZIP_NAME.sha256")
           echo "SHA256=$SHA256" >> $GITHUB_ENV
 
-      # 自动生成 changelog（基于上一个 tag）
+      # 自动生成 changelog（安全写法，避免 EOF 问题）
       - name: Generate changelog
         run: |
           PREV_TAG=$(git tag --sort=-creatordate | grep '^v' | sed -n '2p')
 
           if [ -z "$PREV_TAG" ]; then
-            echo "- 初次发布" > CHANGELOG.md
+            CHANGELOG="- 初次发布"
           else
-            git log "$PREV_TAG"..HEAD --pretty=format:"- %s" > CHANGELOG.md
+            CHANGELOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"- %s")
           fi
 
-          echo "CHANGELOG<<EOF" >> $GITHUB_ENV
-          cat CHANGELOG.md >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          {
+            echo "CHANGELOG<<__EOF__"
+            echo "$CHANGELOG"
+            echo "__EOF__"
+          } >> "$GITHUB_ENV"
 
       # 生成 Magisk 官方 OTA update.json
       - name: Generate update.json
@@ -83,7 +85,7 @@ jobs:
           }
           EOF
 
-      # 提交 update.json 到 main（还原 module.prop，避免污染）
+      # 提交 update.json 到 main（还原 module.prop）
       - name: Commit update.json
         run: |
           git config user.name "github-actions"
@@ -94,7 +96,7 @@ jobs:
           git commit -m "Update update.json for ${RAW_VERSION}" || exit 0
           git push origin HEAD:main
 
-      # 创建 GitHub Release（使用自动 changelog）
+      # 创建 GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
