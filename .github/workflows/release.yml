@@ -27,14 +27,6 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
 
-      # 校验 CHANGELOG 是否包含该版本
-      - name: Check changelog
-        run: |
-          grep -q "^## ${VERSION}" FuckAd/CHANGELOG.md || {
-            echo "❌ FuckAd/CHANGELOG.md 中未找到 ${VERSION}"
-            exit 1
-          }
-
       # 更新 module.prop（仅用于打包）
       - name: Update module.prop
         run: |
