@@ -16,22 +16,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # 必须，否则拿不到旧 tag
 
       # 解析版本号
       - name: Parse version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION_CODE=$(echo "$VERSION" | sed 's/^v//' | awk -F. '{ printf "%d%02d%02d\n", $1,$2,$3 }')
+          RAW_VERSION=${GITHUB_REF#refs/tags/}   # v1.2.3
+          VERSION=${RAW_VERSION#v}              # 1.2.3
 
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          VERSION_CODE=$(printf "%d%02d%02d\n" "$MAJOR" "$MINOR" "$PATCH")
+
+          echo "RAW_VERSION=$RAW_VERSION" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
 
-      # 更新 module.prop（仅用于打包）
+      # 更新 module.prop（仅用于打包，不提交）
       - name: Update module.prop
         run: |
-          sed -i "s/^version=.*/version=${VERSION}/" FuckAd/module.prop
-          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" FuckAd/module.prop
+          sed -i "s/^version=.*/version=${VERSION}/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
 
       # 打包 Magisk 模块
       - name: Build Magisk module zip
@@ -42,9 +46,7 @@ jobs:
           zip -r "$ZIP_NAME" . \
             -x ".git/*" \
             -x ".github/*" \
-            -x ".gitignore" \
             -x "update.json" \
-            -x "CHANGELOG.md" \
             -x "*.sha256"
 
       # 生成 SHA256
@@ -54,51 +56,55 @@ jobs:
           SHA256=$(cut -d ' ' -f1 "$ZIP_NAME.sha256")
           echo "SHA256=$SHA256" >> $GITHUB_ENV
 
-      # 生成 update.json（OTA）
+      # 自动生成 changelog（基于上一个 tag）
+      - name: Generate changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-creatordate | grep '^v' | sed -n '2p')
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "- 初次发布" > CHANGELOG.md
+          else
+            git log "$PREV_TAG"..HEAD --pretty=format:"- %s" > CHANGELOG.md
+          fi
+
+          echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+          cat CHANGELOG.md >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      # 生成 Magisk 官方 OTA update.json
       - name: Generate update.json
         run: |
-          VERSION_NO_V=${VERSION#v}
-          CHANGELOG_ANCHOR=$(echo "v${VERSION_NO_V}" | tr -d '.')
-
           cat > update.json <<EOF
           {
             "version": "${VERSION}",
             "versionCode": ${VERSION_CODE},
-            "zipUrl": "https://github.com/YuyuAww/FuckAd/releases/download/${VERSION}/FuckAd-${VERSION}.zip",
-            "changelog": "https://github.com/YuyuAww/FuckAd/blob/main/FuckAd/CHANGELOG.md#${CHANGELOG_ANCHOR}"
+            "zipUrl": "https://github.com/YuyuAww/FuckAd/releases/download/${RAW_VERSION}/FuckAd-${VERSION}.zip",
+            "changelog": "https://github.com/YuyuAww/FuckAd/releases/tag/${RAW_VERSION}"
           }
           EOF
 
-      # 提交 update.json 到 main
+      # 提交 update.json 到 main（还原 module.prop，避免污染）
       - name: Commit update.json
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          git fetch origin main
-          git switch main
-
+          git checkout -- module.prop
           git add update.json
-          git commit -m "Update update.json for ${VERSION}" || exit 0
-          git push origin main
+          git commit -m "Update update.json for ${RAW_VERSION}" || exit 0
+          git push origin HEAD:main
 
-      # 提取当前版本更新内容
-      - name: Extract changelog
-        run: |
-          awk "/^## ${VERSION}/{flag=1;next}/^## /{flag=0}flag" FuckAd/CHANGELOG.md > RELEASE_CHANGELOG.md
-
-      # 创建 GitHub Release
+      # 创建 GitHub Release（使用自动 changelog）
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: ${{ env.VERSION }}
-          fail_on_unmatched_files: true
+          tag_name: ${{ env.RAW_VERSION }}
+          name: ${{ env.RAW_VERSION }}
           body: |
             ## FuckAd Magisk Module
 
             ### 更新内容
-            $(cat RELEASE_CHANGELOG.md)
+            ${{ env.CHANGELOG }}
 
             ### 文件校验
             **SHA256**
