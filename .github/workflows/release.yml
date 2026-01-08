@@ -46,6 +46,8 @@ jobs:
           zip -r "$ZIP_NAME" . \
             -x ".git/*" \
             -x ".github/*" \
+            -x "CHANGELOG.md" \
+            -x "LICENSE" \
             -x "update.json" \
             -x "*.sha256"
 

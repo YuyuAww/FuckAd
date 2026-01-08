@@ -16,4 +16,3 @@
 - [AWAvenue 秋风广告规则](https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-hosts.txt) - 提供了优秀的广告过滤规则
 - [@coolapk 1007](https://raw.githubusercontent.com/lingeringsound/10007_auto/master/all) - 提供了大量广告过滤规则
 - [AdHosts](https://raw.githubusercontent.com/samyansan/AdHosts/master/hosts) - 提供了全球最全面的 hosts 文件
-- [GitHub Hosts](https://raw.githubusercontent.com/maxiaof/github-hosts/master/hosts) - 提供了 GitHub 访问加速 hosts 文件

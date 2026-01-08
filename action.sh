@@ -2,114 +2,95 @@
 
 MODDIR=${0%/*}
 
-# 并行下载最大任务数（建议 3~5）
-MAX_JOBS=4
+TMPDIR="/tmp/fuckad"
+TMP_HOSTS="$TMPDIR/hosts"
+OUT_HOSTS="${MODDIR}/system/etc/hosts"
 
-# 订阅源（GitHub 加速）
-source=$(grep -v '#' ${MODDIR}/source.ini | sed 's/raw.githubusercontent.com/raw.gitmirror.com/g')
+CURL="${MODDIR}/bin/curl"
+WGET="${MODDIR}/bin/wget"
 
-syncdate=$(date '+%Y-%m-%d %H:%M:%S')
+[ ! -x "$CURL" ] && CURL="curl"
+[ ! -x "$WGET" ] && WGET="wget"
 
-# 确保工具可执行
-chmod 755 $MODDIR/bin/wget
-chmod 755 $MODDIR/bin/curl
+mkdir -p "$TMPDIR"
+mkdir -p "$(dirname "$OUT_HOSTS")"
 
-# 目录准备
-[ ! -d "${MODDIR}/tmp" ] && mkdir ${MODDIR}/tmp
-[ ! -d "${MODDIR}/system/etc" ] && mkdir -p ${MODDIR}/system/etc
+: > "$TMP_HOSTS"
 
-# 清空临时 hosts
-: > ${MODDIR}/tmp/hosts.tmp
-
-# 并行同步函数（wget → curl 兜底）
-
-synchosts() {
-	jobcount=0
-
-	for sourceurl in $source
-	do
-	(
-		hash=$(echo "$sourceurl" | md5sum | awk '{print $1}')
-		tmpfile="${MODDIR}/tmp/${hash}.tmp"
-		: > "$tmpfile"
-
-		echo "同步中: $sourceurl"
-
-		# wget 优先
-		$MODDIR/bin/wget -q --no-check-certificate -t 1 -T 10 \
-		-O "$tmpfile" "$sourceurl"
-
-		# wget 失败或空文件 → curl
-		if [ $? -ne 0 ] || [ ! -s "$tmpfile" ]; then
-			echo "wget 失败，切换 curl: $sourceurl"
-			$MODDIR/bin/curl -L -k --connect-timeout 10 \
-			-A "Mozilla/5.0" \
-			"$sourceurl" -o "$tmpfile"
-		fi
-
-		# 成功才合并
-		if [ -s "$tmpfile" ]; then
-			cat "$tmpfile" >> ${MODDIR}/tmp/hosts.tmp
-		else
-			echo "同步失败: $sourceurl"
-		fi
-
-		rm -f "$tmpfile"
-	) &
-
-		jobcount=$((jobcount + 1))
-
-		# 并发控制
-		if [ "$jobcount" -ge "$MAX_JOBS" ]; then
-			wait
-			jobcount=0
-		fi
-	done
-
-	wait
+log() {
+  echo "[FuckAd] $*"
 }
 
-# 执行同步（失败自动重试）
+syncdate=$(date "+%Y-%m-%d %H:%M")
 
-if [ "$(echo "$source" | wc -l)" != "0" ]; then
-	retry=1
-	while [ $retry -le 3 ]; do
-		synchosts
-		[ -s "${MODDIR}/tmp/hosts.tmp" ] && break
-		retry=$((retry + 1))
-	done
-fi
+log "开始同步 hosts..."
 
-# 后续处理（过滤、去重、黑白名单等）
-cat ${MODDIR}/tmp/hosts.tmp | grep -E -v 'localhost|#|!' | grep -E "^[0-9]|::1" | sed 's/\t/ /g' | grep -v '^$' | awk 'NF' > ${MODDIR}/tmp/hosts
+# 1. 下载并合并订阅源
 
-allhosts=$(wc -l ${MODDIR}/tmp/hosts | awk '{print $1}')
+while read -r url; do
+  case "$url" in
+    ""|\#*) continue ;;
+  esac
 
-for whiteurl in $(grep -v '^[ \t]*[#]' whitehosts.ini | awk 'NF > 0')
-do
-	sed -i "/ $whiteurl\s*/d" ${MODDIR}/tmp/hosts
-done
+  log "下载: $url"
 
-awk '!seen[$2]++' ${MODDIR}/tmp/hosts > ${MODDIR}/tmp/hosts.tmp
+  if ! $CURL -fsSL --connect-timeout 10 "$url" >> "$TMP_HOSTS"; then
+    log "curl 失败，尝试 wget"
+    $WGET -qO- "$url" >> "$TMP_HOSTS" || log "下载失败: $url"
+  fi
+done < "$MODDIR/source.ini"
 
-for blockurl in $(grep -v '^[ \t]*[#]' blackhosts.ini | awk 'NF > 0')
-do
-	echo "127.0.0.1  $blockurl" >> ${MODDIR}/tmp/hosts.tmp
-done
+#提取域名
 
-sorthosts=$(wc -l ${MODDIR}/tmp/hosts.tmp | awk '{print $1}')
+grep -Ev '^[ \t]*#|^[ \t]*$' "$TMP_HOSTS" \
+  | sed 's/\r//' \
+  | awk '{print $NF}' \
+  | grep -E '([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}' \
+  > "$TMPDIR/all_domains"
 
-if [ -s "${MODDIR}/tmp/hosts.tmp" ]; then
-   umount /system/etc/hosts
-   mv -f ${MODDIR}/tmp/hosts.tmp ${MODDIR}/system/etc/hosts
-   sed -i "s/description=.*/description=[😋生效中] $sorthosts 条规则有效; $((allhosts - sorthosts)) 条规则去重; $(grep -v '^[ \t]*[#]' whitehosts.ini | awk 'NF > 0' | wc -l) 条白名单规则; $(grep -v '^[ \t]*[#]' blackhosts.ini | awk 'NF > 0' | wc -l) 条黑名单规则; 上次同步日期 $syncdate;/" ${MODDIR}/module.prop
-   echo "$sorthosts 条规则有效;"
-   echo "$((allhosts - sorthosts)) 条规则去重;"
-   echo "$(grep -v '^[ \t]*[#]' whitehosts.ini | awk 'NF > 0' | wc -l) 条白名单规则;"
-   echo "$(grep -v '^[ \t]*[#]' blackhosts.ini | awk 'NF > 0' | wc -l) 条黑名单规则;"
-   echo -e '127.0.0.1  localhost\n::1  localhost' >> ${MODDIR}/system/etc/hosts
-   mount --bind ${MODDIR}/system/etc/hosts /system/etc/hosts
-else
-	echo "此次同步不包含任何可用规则"
-fi
-sleep 2
+allhosts=$(wc -l < "$TMPDIR/all_domains")
+
+#处理白名单
+
+grep -v '^[ \t]*[#]' "$MODDIR/whitehosts.ini" | awk 'NF>0' \
+  > "$TMPDIR/white.list"
+
+grep -v -F -f "$TMPDIR/white.list" \
+  "$TMPDIR/all_domains" > "$TMPDIR/after_white"
+
+
+#处理黑名单
+
+grep -v '^[ \t]*[#]' "$MODDIR/blackhosts.ini" | awk 'NF>0' \
+  > "$TMPDIR/black.list"
+
+cat "$TMPDIR/after_white" "$TMPDIR/black.list" \
+  > "$TMPDIR/after_black"
+
+#排序去重
+
+sort -u "$TMPDIR/after_black" > "$TMPDIR/final_domains"
+
+sorthosts=$(wc -l < "$TMPDIR/final_domains")
+
+#（Magisk 挂载到 /system/etc/hosts）
+
+{
+  echo "127.0.0.1 localhost"
+  echo "::1 localhost"
+  echo ""
+  while read -r domain; do
+    echo "0.0.0.0 $domain"
+  done < "$TMPDIR/final_domains"
+} > "$OUT_HOSTS"
+
+#更新 module.prop 描述
+
+whitecount=$(wc -l < "$TMPDIR/white.list")
+blackcount=$(wc -l < "$TMPDIR/black.list")
+dupcount=$((allhosts - sorthosts))
+
+sed -i "s|^description=.*|description=[😋生效中] $sorthosts 条规则有效; $dupcount 条规则去重; $whitecount 条白名单规则; $blackcount 条黑名单规则; 上次同步日期 $syncdate;|" \
+  "$MODDIR/module.prop"
+
+log "同步完成：$sorthosts 条规则已生效"
